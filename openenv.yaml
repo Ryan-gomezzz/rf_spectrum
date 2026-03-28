@@ -1,0 +1,22 @@
+name: rf_spectrum_env
+version: "1.0.0"
+description: >
+  RF Spectrum Allocation Environment for training AI agents to manage
+  radio frequency spectrum. Agents process allocation requests, assign
+  frequency bands, set power levels, and handle priority preemption
+  while respecting regulatory constraints. Features three difficulty
+  levels modeling real-world dynamic spectrum access (DSA) challenges
+  including cognitive radio secondary user dynamics.
+tasks:
+  - name: easy
+    description: Low-occupancy spectrum with straightforward allocation requests.
+    difficulty: easy
+    steps_per_episode: 5
+  - name: medium
+    description: Moderate occupancy with priority conflicts and guard band awareness.
+    difficulty: medium
+    steps_per_episode: 8
+  - name: hard
+    description: Dense urban spectrum with cascading preemptions, cognitive radio dynamics, and military operations.
+    difficulty: hard
+    steps_per_episode: 12
