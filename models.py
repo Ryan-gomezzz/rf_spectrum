@@ -117,8 +117,8 @@ class SpectrumObservation(Observation):
 @dataclass
 class SpectrumState(State):
     """Internal episode state."""
-
-    task_name: str = ""
+    episode_id: str=" "
+    task_name: str = " "
     accumulated_reward: float = 0.0
     requests_processed: int = 0
     requests_total: int = 0
@@ -126,3 +126,4 @@ class SpectrumState(State):
     rejected_requests: int = 0
     interference_events: int = 0
     preemptions: int = 0
+    step_count:int=0
