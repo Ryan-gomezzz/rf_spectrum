@@ -8,6 +8,11 @@ MANDATORY ENV VARS:
     API_BASE_URL   The API endpoint for the LLM.
     MODEL_NAME     The model identifier to use for inference.
     HF_TOKEN       Your Hugging Face / API key.
+
+STDOUT FORMAT (mandatory, do not alter):
+    [START] task=<task_name> env=rf_spectrum_env model=<model_name>
+    [STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+    [END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
 """
 
 import json
@@ -117,7 +122,6 @@ Respond with a JSON object: {{"assigned_band_index": <int>, "assigned_power_dbm"
 
 def parse_action(response_text: str) -> SpectrumAction:
     """Extract a SpectrumAction from model response."""
-    # Try to find JSON in the response
     text = response_text.strip()
 
     # Remove markdown code blocks if present
@@ -149,7 +153,7 @@ def parse_action(response_text: str) -> SpectrumAction:
             pass
 
     # Fallback: reject with no justification
-    print(f"  [WARN] Could not parse action from response: {text[:100]}...")
+    print(f"  [WARN] Could not parse action from response: {text[:100]}...", file=sys.stderr)
     return SpectrumAction(
         assigned_band_index=-1,
         assigned_power_dbm=0.0,
@@ -166,59 +170,86 @@ def run_episode(
     """Run a single episode and return the score."""
     obs = env.reset(task_name=task_name, episode_index=episode_idx)
     rewards: List[float] = []
-
-    print(f"\n  Episode {episode_idx} ({task_name}) — {obs.total_steps} steps")
-
+    success = False
     step = 0
-    while not obs.done:
-        user_prompt = build_user_prompt(obs)
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ]
+    # Mandatory [START] line
+    print(f"[START] task={task_name} env=rf_spectrum_env model={MODEL_NAME}", flush=True)
 
-        response_text = ""
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                completion = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=messages,
-                    temperature=TEMPERATURE,
-                    max_tokens=MAX_TOKENS,
-                    stream=False,
-                )
-                response_text = completion.choices[0].message.content or ""
-                break
-            except Exception as e:
-                print(f"    [RETRY {attempt+1}] API error: {e}")
-                if attempt == MAX_RETRIES:
-                    response_text = '{"assigned_band_index": -1, "assigned_power_dbm": 0, "justification": "API failure"}'
+    try:
+        while not obs.done:
+            user_prompt = build_user_prompt(obs)
 
-        action = parse_action(response_text)
-        obs = env.step(action)
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ]
 
-        reward = obs.reward if obs.reward is not None else 0.0
-        rewards.append(reward)
+            response_text = ""
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    completion = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=messages,
+                        temperature=TEMPERATURE,
+                        max_tokens=MAX_TOKENS,
+                        stream=False,
+                    )
+                    response_text = completion.choices[0].message.content or ""
+                    break
+                except Exception as e:
+                    print(f"    [RETRY {attempt+1}] API error: {e}", file=sys.stderr)
+                    if attempt == MAX_RETRIES:
+                        response_text = '{"assigned_band_index": -1, "assigned_power_dbm": 0, "justification": "API failure"}'
 
-        error_str = f" ERROR: {obs.last_action_error}" if obs.last_action_error else ""
-        print(f"    Step {step+1}: band={action.assigned_band_index} "
-              f"pwr={action.assigned_power_dbm:.1f}dBm → reward={reward:.3f}{error_str}")
+            action = parse_action(response_text)
+            obs = env.step(action)
 
-        step += 1
+            reward = obs.reward if obs.reward is not None else 0.0
+            rewards.append(reward)
+            step += 1
+
+            # Mandatory [STEP] line
+            done_str = "true" if obs.done else "false"
+            error_str = obs.last_action_error if obs.last_action_error else "null"
+            action_str = f"assign(band={action.assigned_band_index},power={action.assigned_power_dbm:.1f})"
+            print(
+                f"[STEP] step={step} action={action_str} reward={reward:.2f} "
+                f"done={done_str} error={error_str}",
+                flush=True,
+            )
+
+        success = True
+
+    except Exception as exc:
+        # Emit a final [STEP] for the failed step
+        error_msg = str(exc).replace("\n", " ")
+        print(
+            f"[STEP] step={step + 1} action=null reward=0.00 done=true error={error_msg}",
+            flush=True,
+        )
+
+    finally:
+        # Mandatory [END] line — always emitted
+        rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+        success_str = "true" if success else "false"
+        print(
+            f"[END] success={success_str} steps={step} rewards={rewards_str}",
+            flush=True,
+        )
 
     score = grade_episode(rewards)
-    print(f"  Episode score: {score:.4f}")
+    print(f"  Episode {episode_idx} score: {score:.4f}", file=sys.stderr)
     return score
 
 
 def main():
     """Run baseline inference across all three tasks."""
-    print("=" * 60)
-    print("RF Spectrum Allocation — Baseline Inference")
-    print(f"Model: {MODEL_NAME}")
-    print(f"API: {API_BASE_URL}")
-    print("=" * 60)
+    print("=" * 60, file=sys.stderr)
+    print("RF Spectrum Allocation — Baseline Inference", file=sys.stderr)
+    print(f"Model: {MODEL_NAME}", file=sys.stderr)
+    print(f"API: {API_BASE_URL}", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
 
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     env = SpectrumEnvironment()
@@ -227,10 +258,10 @@ def main():
     num_episodes_per_task = 3  # run 3 episodes per difficulty
 
     for task_name in ["easy", "medium", "hard"]:
-        print(f"\n{'─' * 40}")
-        print(f"TASK: {task_name.upper()}")
-        print(f"Description: {TASK_REGISTRY[task_name]['description']}")
-        print(f"{'─' * 40}")
+        print(f"\n{'-' * 40}", file=sys.stderr)
+        print(f"TASK: {task_name.upper()}", file=sys.stderr)
+        print(f"Description: {TASK_REGISTRY[task_name]['description']}", file=sys.stderr)
+        print(f"{'-' * 40}", file=sys.stderr)
 
         task_scores = []
         for ep_idx in range(num_episodes_per_task):
@@ -239,22 +270,22 @@ def main():
 
         avg = sum(task_scores) / len(task_scores) if task_scores else 0.0
         results[task_name] = task_scores
-        print(f"\n  {task_name.upper()} average: {avg:.4f}")
+        print(f"\n  {task_name.upper()} average: {avg:.4f}", file=sys.stderr)
 
     # ── Summary ──────────────────────────────────────────────────────
-    print(f"\n{'=' * 60}")
-    print("RESULTS SUMMARY")
-    print(f"{'=' * 60}")
+    print(f"\n{'=' * 60}", file=sys.stderr)
+    print("RESULTS SUMMARY", file=sys.stderr)
+    print(f"{'=' * 60}", file=sys.stderr)
 
     overall_scores = []
     for task_name, scores in results.items():
         avg = sum(scores) / len(scores) if scores else 0.0
         overall_scores.append(avg)
-        print(f"  {task_name:8s}: {avg:.4f}  (episodes: {[f'{s:.3f}' for s in scores]})")
+        print(f"  {task_name:8s}: {avg:.4f}  (episodes: {[f'{s:.3f}' for s in scores]})", file=sys.stderr)
 
     overall_avg = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
-    print(f"\n  OVERALL:  {overall_avg:.4f}")
-    print(f"{'=' * 60}")
+    print(f"\n  OVERALL:  {overall_avg:.4f}", file=sys.stderr)
+    print(f"{'=' * 60}", file=sys.stderr)
 
     return overall_avg
 

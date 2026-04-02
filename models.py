@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Field
-from openenv.core.env_server.types import Action, Observation, State
+from openenv.core.env_server.types import Action, Observation, State  # noqa: F401
 
 
 # ── Spectrum domain types ────────────────────────────────────────────
@@ -114,7 +114,6 @@ class SpectrumObservation(Observation):
     # done: bool, reward: float, metadata: dict
 
 
-@dataclass
 class SpectrumState(State):
     """Internal episode state."""
 

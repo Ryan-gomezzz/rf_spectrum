@@ -6,9 +6,16 @@ Implements the OpenEnv Environment interface with step(), reset(), state().
 
 from __future__ import annotations
 
+import os
+import sys
 import uuid
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional
+
+# Ensure project root is on path when running from server/ directory or Docker
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
