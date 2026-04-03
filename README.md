@@ -1,14 +1,3 @@
----
-title: RF Spectrum Allocation Environment
-emoji: "\U0001F4E1"
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-tags:
-  - openenv
----
-
 <div align="center">
 
 # RF Spectrum Allocation Environment
@@ -334,3 +323,5 @@ This environment directly serves as a training ground for:
 ## License
 
 BSD-3-Clause
+
+Developed by Ryan Gomez, Renya Peter and Nysa Lakhotia.
