@@ -7,7 +7,6 @@ sdk: docker
 app_port: 7860
 pinned: false
 ---
-<<<<<<< HEAD
 # RF Spectrum Allocation Environment
 
 > Simulating the daily workflow of a telecom spectrum coordinator — the professional who decides which radio frequencies get assigned to whom, at what power, while enforcing regulatory policy in real time.
@@ -252,15 +251,3 @@ rf_spectrum_env/
 
 BSD-3-Clause
 =======
----
-title: Rf Spectrum Env
-emoji: 👀
-colorFrom: gray
-colorTo: gray
-sdk: docker
-pinned: false
-short_description: An OpenEnv-compatible RF spectrum management environment for
----
-
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
->>>>>>> 118aab81117b06f236042646629179fc8dbec0d7
