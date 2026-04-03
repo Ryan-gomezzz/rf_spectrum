@@ -16,6 +16,30 @@ from server.spectrum_environment import SpectrumEnvironment
 app = create_fastapi_app(SpectrumEnvironment, SpectrumAction, SpectrumObservation)
 
 
+@app.get("/")
+async def root():
+    """
+    Hugging Face Spaces and browsers hit `/` by default. OpenEnv registers
+    `/health`, `/docs`, `/reset`, etc., but not `/`, which otherwise returns 404.
+    """
+    return {
+        "name": "rf_spectrum_env",
+        "status": "running",
+        "openenv": True,
+        "endpoints": {
+            "health": "/health",
+            "metadata": "/metadata",
+            "schema": "/schema",
+            "docs": "/docs",
+            "openapi": "/openapi.json",
+            "reset": "POST /reset",
+            "step": "POST /step",
+            "state": "GET /state",
+            "websocket": "/ws",
+        },
+    }
+
+
 def main():
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)

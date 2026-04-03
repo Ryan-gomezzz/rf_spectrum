@@ -5,9 +5,9 @@ Uses OpenAI-compatible API client to run an LLM agent against all three
 task difficulty levels and report scores.
 
 MANDATORY ENV VARS:
-    API_BASE_URL   The API endpoint for the LLM.
-    MODEL_NAME     The model identifier to use for inference.
-    HF_TOKEN       Your Hugging Face / API key (also accepts OPENAI_API_KEY).
+    API_BASE_URL   The API endpoint for the LLM (default allowed).
+    MODEL_NAME     The model identifier to use for inference (default allowed).
+    HF_TOKEN       Your Hugging Face / API key (required; no default).
 
 STDOUT FORMAT (mandatory, do not alter):
     [START] task=<task_name> env=rf_spectrum_env model=<model_name>
@@ -34,8 +34,8 @@ from scenarios import TASK_REGISTRY
 # ── Configuration ────────────────────────────────────────────────────
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY", "")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
 MAX_RETRIES = 2
 TEMPERATURE = 0.0
@@ -245,13 +245,20 @@ def run_episode(
 
 def main():
     """Run baseline inference across all three tasks."""
+    if not HF_TOKEN:
+        print(
+            "ERROR: HF_TOKEN is required (set your Hugging Face / API key).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print("=" * 60, file=sys.stderr)
     print("RF Spectrum Allocation — Baseline Inference", file=sys.stderr)
     print(f"Model: {MODEL_NAME}", file=sys.stderr)
     print(f"API: {API_BASE_URL}", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
     env = SpectrumEnvironment()
 
     results: Dict[str, List[float]] = {}
