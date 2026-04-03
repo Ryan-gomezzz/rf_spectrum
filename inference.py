@@ -290,5 +290,5 @@ def main():
     return overall_avg
 
 
-if __name__ == "__main__":
-    main()
+#if __name__ == "__main__":
+#   main()
