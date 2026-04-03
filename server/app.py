@@ -47,3 +47,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+from fastapi.responses import RedirectResponse
+
+@app.get("/")
+def root():
+    return RedirectResponse(url="/docs")
