@@ -35,9 +35,6 @@ coverage.xml
 *.cover
 .hypothesis/
 
-# uv
-.uv/
-
 # IDEs
 .vscode/
 .idea/
