@@ -36,7 +36,6 @@ coverage.xml
 .hypothesis/
 
 # uv
-uv.lock
 .uv/
 
 # IDEs

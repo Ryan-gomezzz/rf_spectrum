@@ -7,12 +7,12 @@ task difficulty levels and report scores.
 MANDATORY ENV VARS:
     API_BASE_URL   The API endpoint for the LLM.
     MODEL_NAME     The model identifier to use for inference.
-    HF_TOKEN       Your Hugging Face / API key.
+    HF_TOKEN       Your Hugging Face / API key (also accepts OPENAI_API_KEY).
 
 STDOUT FORMAT (mandatory, do not alter):
     [START] task=<task_name> env=rf_spectrum_env model=<model_name>
     [STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-    [END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
+    [END] success=<true|false> steps=<n> score=<0.00> rewards=<r1,r2,...,rn>
 """
 
 import json
@@ -34,11 +34,11 @@ from scenarios import TASK_REGISTRY
 # ── Configuration ────────────────────────────────────────────────────
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY", "")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 
 MAX_RETRIES = 2
-TEMPERATURE = 0.2
+TEMPERATURE = 0.0
 MAX_TOKENS = 300
 
 SYSTEM_PROMPT = textwrap.dedent("""
@@ -168,7 +168,7 @@ def run_episode(
     episode_idx: int,
 ) -> float:
     """Run a single episode and return the score."""
-    obs = env.reset(task_name=task_name, episode_index=episode_idx)
+    obs = env.reset(task_name=task_name, episode_index=episode_idx, seed=42)
     rewards: List[float] = []
     success = False
     step = 0
@@ -231,14 +231,14 @@ def run_episode(
 
     finally:
         # Mandatory [END] line — always emitted
+        score = grade_episode(rewards) if rewards else 0.0
         rewards_str = ",".join(f"{r:.2f}" for r in rewards)
         success_str = "true" if success else "false"
         print(
-            f"[END] success={success_str} steps={step} rewards={rewards_str}",
+            f"[END] success={success_str} steps={step} score={score:.2f} rewards={rewards_str}",
             flush=True,
         )
 
-    score = grade_episode(rewards)
     print(f"  Episode {episode_idx} score: {score:.4f}", file=sys.stderr)
     return score
 

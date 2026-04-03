@@ -1,12 +1,11 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
 COPY . .
 
-RUN pip install --upgrade pip
-RUN pip install .
+RUN pip install --no-cache-dir .
 
 EXPOSE 7860
 
-CMD ["python", "inference.py"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
