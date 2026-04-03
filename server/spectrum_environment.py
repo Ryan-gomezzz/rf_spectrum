@@ -93,8 +93,22 @@ class SpectrumEnvironment(Environment):
         request = self._current_episode[step_idx]
         reward, error = self._evaluate_action(action, request)
 
-        # Update allocations
-        if action.assigned_band_index >= 0 and error is None:
+        num_bands = len(SPECTRUM_GRID)
+
+        # Update allocations for any valid band assignment (0..N-1)
+        if 0 <= action.assigned_band_index < num_bands:
+            # Handle preemption: count then remove lower-priority allocations
+            if request.priority <= 2:
+                preempted = [
+                    a for a in self._active_allocations
+                    if a["band_index"] == action.assigned_band_index
+                ]
+                self._state.preemptions += len(preempted)
+                self._active_allocations = [
+                    a for a in self._active_allocations
+                    if a["band_index"] != action.assigned_band_index
+                ]
+
             self._active_allocations.append({
                 "band_index": action.assigned_band_index,
                 "user_type": request.requester_type,
@@ -105,20 +119,17 @@ class SpectrumEnvironment(Environment):
             })
             self._state.successful_allocations += 1
 
-            # Handle preemption: remove lower-priority allocations in same band
-            if request.priority <= 2:
-                self._active_allocations = [
-                    a for a in self._active_allocations
-                    if a["band_index"] != action.assigned_band_index
-                    or a["request_id"] == request.request_id
-                ]
-                # Count preemptions
-                preempted = sum(
-                    1 for a in self._active_allocations
-                    if a["band_index"] == action.assigned_band_index
-                    and a["request_id"] != request.request_id
-                )
-                self._state.preemptions += preempted
+            # Check guard band interference with adjacent active allocations
+            assigned = SPECTRUM_GRID[action.assigned_band_index]
+            for alloc in self._active_allocations:
+                if alloc["request_id"] == request.request_id:
+                    continue
+                other = SPECTRUM_GRID[alloc["band_index"]]
+                gap = max(assigned.start_mhz, other.start_mhz) - min(assigned.end_mhz, other.end_mhz)
+                required_guard = max(assigned.guard_band_mhz, other.guard_band_mhz)
+                if 0 < gap < required_guard:
+                    self._state.interference_events += 1
+
         elif action.assigned_band_index == -1:
             self._state.rejected_requests += 1
 
@@ -174,7 +185,6 @@ class SpectrumEnvironment(Environment):
             elif action.assigned_band_index in request.gt_acceptable_bands:
                 total += 0.25  # acceptable but not optimal
             else:
-                # Check if band type is at least compatible
                 chosen_type = SPECTRUM_GRID[action.assigned_band_index].band_type
                 gt_type = SPECTRUM_GRID[request.gt_best_band_index].band_type if request.gt_best_band_index >= 0 else ""
                 if chosen_type == gt_type:
@@ -183,12 +193,12 @@ class SpectrumEnvironment(Environment):
                     total += 0.0
                     error = f"Assigned to incompatible band type '{chosen_type}'."
 
-                # Penalty: assigning commercial traffic to protected band
                 if chosen_type == "protected" and request.requester_type not in ("emergency", "military"):
                     total -= 0.1
                     error = "Regulatory violation: non-emergency user in protected band."
         else:
-            error = f"Invalid band index: {action.assigned_band_index}."
+            # Out-of-range band index: score zero, skip remaining components
+            return 0.0, f"Invalid band index: {action.assigned_band_index}."
 
         # ── Power compliance (0.25) ──────────────────────────────────
         if 0 <= action.assigned_band_index < num_bands:
@@ -196,40 +206,50 @@ class SpectrumEnvironment(Environment):
             gt_max = request.gt_max_power_dbm
 
             if action.assigned_power_dbm <= gt_max:
-                # Within limits
                 if action.assigned_power_dbm <= band.max_power_dbm:
                     total += 0.25
                 else:
-                    total += 0.10  # exceeded band max but within gt
+                    total += 0.10
                     error = error or "Power exceeds band maximum."
             else:
-                # Over the ground-truth maximum
                 overshoot = action.assigned_power_dbm - gt_max
                 if overshoot <= 3.0:
-                    total += 0.15  # slightly over
+                    total += 0.15
                 elif overshoot <= 10.0:
-                    total += 0.05  # moderately over
+                    total += 0.05
                 else:
-                    total += 0.0  # way over
+                    total += 0.0
                 error = error or f"Power {action.assigned_power_dbm} dBm exceeds limit {gt_max} dBm."
+
+        # ── Guard band interference penalty ──────────────────────────
+        if 0 <= action.assigned_band_index < num_bands:
+            assigned = SPECTRUM_GRID[action.assigned_band_index]
+            for alloc in self._active_allocations:
+                other = SPECTRUM_GRID[alloc["band_index"]]
+                if alloc["band_index"] == action.assigned_band_index:
+                    continue
+                gap = max(assigned.start_mhz, other.start_mhz) - min(assigned.end_mhz, other.end_mhz)
+                required_guard = max(assigned.guard_band_mhz, other.guard_band_mhz)
+                if 0 < gap < required_guard:
+                    total -= 0.05
+                    error = error or "Guard band violation: insufficient separation from adjacent allocation."
+                    break
 
         # ── Priority handling (0.25) ──────────────────────────────────
         if request.priority == 1:
-            # Emergency/military: should have been allocated immediately
             if action.assigned_band_index >= 0:
                 total += 0.20
                 if request.gt_should_preempt:
-                    total += 0.05  # full marks for correct preemption awareness
+                    total += 0.05
             else:
                 total += 0.0
                 error = error or "Rejected emergency/military request."
         elif request.gt_should_preempt:
             if action.assigned_band_index >= 0:
-                total += 0.25  # correctly allocated with preemption
+                total += 0.25
             else:
-                total += 0.05  # rejected but should have preempted
+                total += 0.05
         else:
-            # Standard priority handling
             if action.assigned_band_index >= 0 or request.gt_best_band_index == -1:
                 total += 0.25
             else:
