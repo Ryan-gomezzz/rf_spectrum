@@ -1,4 +1,8 @@
 ---
+title: RF Spectrum Allocation Environment
+emoji: "\U0001F4E1"
+colorFrom: blue
+colorTo: indigo
 sdk: docker
 app_port: 7860
 tags:
