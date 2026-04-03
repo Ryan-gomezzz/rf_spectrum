@@ -1,12 +1,5 @@
----
-title: RF Spectrum Environment
-emoji: 📡
-colorFrom: blue
-colorTo: purple
-sdk: docker
-app_port: 7860
-pinned: false
----
+<div align="center">
+
 # RF Spectrum Allocation Environment
 
 > Simulating the daily workflow of a telecom spectrum coordinator — the professional who decides which radio frequencies get assigned to whom, at what power, while enforcing regulatory policy in real time.
@@ -250,4 +243,5 @@ rf_spectrum_env/
 ## License
 
 BSD-3-Clause
-=======
+
+Developed by Ryan Gomez, Renya Peter and Nysa Lakhotia.
