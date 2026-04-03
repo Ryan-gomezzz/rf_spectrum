@@ -1,8 +1,4 @@
 ---
-title: RF Spectrum Allocation Environment
-emoji: "\U0001F4E1"
-colorFrom: blue
-colorTo: indigo
 sdk: docker
 app_port: 7860
 tags:
@@ -14,6 +10,8 @@ tags:
 # RF Spectrum Allocation Environment
 
 **An OpenEnv environment that simulates the daily workflow of a telecom spectrum coordinator**
+
+<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&duration=2000&pause=900&color=36BCF7&width=520&lines=Dynamic+Spectrum+Access+Simulator;Telecom+Spectrum+Coordinator+Benchmark" />
 
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://python.org)
