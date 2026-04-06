@@ -290,10 +290,22 @@ class SpectrumEnvironment(Environment):
 
     def _build_observation(self, done: bool, reward: float | None,
                            error: str | None = None) -> SpectrumObservation:
-        """Construct the observation for the current step."""
+        """
+        Construct the SpectrumObservation for the current step.
+
+        Args:
+            done:   Whether the episode has ended.
+            reward: Per-step reward (None on reset, float after each step).
+            error:  Optional regulatory violation message from _evaluate_action.
+
+        Returns:
+            A fully populated SpectrumObservation including spectrum grid
+            occupancy, current request, regulatory rules, and (for the
+            spectrum_auction task) a look-ahead preview of upcoming requests.
+        """
         step_idx = self._state.step_count
 
-        # Current request (or empty if done)
+        # Current request (or empty dict when the episode is finished)
         if step_idx < len(self._current_episode) and not done:
             req = self._current_episode[step_idx]
             current_request = {
@@ -310,7 +322,7 @@ class SpectrumEnvironment(Environment):
         else:
             current_request = {}
 
-        # Spectrum grid with occupancy
+        # Spectrum grid annotated with live occupancy information
         grid = get_spectrum_grid()
         for band_info in grid:
             occupants = [
@@ -328,13 +340,28 @@ class SpectrumEnvironment(Environment):
                 for a in occupants
             ]
 
-        # Spectral efficiency
+        # Spectral efficiency: fraction of total bandwidth currently allocated
         occupied_bw = sum(
             SPECTRUM_GRID[a["band_index"]].end_mhz - SPECTRUM_GRID[a["band_index"]].start_mhz
             for a in self._active_allocations
         )
         total_bw = sum(b.end_mhz - b.start_mhz for b in SPECTRUM_GRID)
         efficiency = occupied_bw / total_bw if total_bw > 0 else 0.0
+
+        # Look-ahead: expose next 2 requests for the spectrum_auction task only.
+        # Ground-truth fields are intentionally omitted — only observable attributes
+        # (type, priority, bandwidth, preferred band, description) are revealed.
+        upcoming: List[Dict[str, Any]] = []
+        if self._task_name == "spectrum_auction":
+            for future_idx in range(step_idx + 1, min(step_idx + 3, len(self._current_episode))):
+                future_req = self._current_episode[future_idx]
+                upcoming.append({
+                    "requester_type": future_req.requester_type,
+                    "priority": future_req.priority,
+                    "bandwidth_needed_mhz": future_req.bandwidth_needed_mhz,
+                    "preferred_band_index": future_req.preferred_band_index,
+                    "description": future_req.description,
+                })
 
         return SpectrumObservation(
             spectrum_grid=grid,
@@ -347,6 +374,7 @@ class SpectrumEnvironment(Environment):
             spectral_efficiency=round(efficiency, 4),
             episode_reward_so_far=round(self._state.accumulated_reward, 4),
             last_action_error=error,
+            upcoming_requests=upcoming,
             done=done,
             reward=reward,
         )

@@ -110,6 +110,16 @@ class SpectrumObservation(Observation):
     episode_reward_so_far: float = Field(default=0.0)
     last_action_error: Optional[str] = Field(default=None)
 
+    # Look-ahead field: populated only for the spectrum_auction task
+    upcoming_requests: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Preview of the next 1-2 upcoming requests (spectrum_auction task only). "
+            "Each entry exposes requester_type, priority, bandwidth_needed_mhz, "
+            "preferred_band_index, and description — no ground-truth fields revealed."
+        ),
+    )
+
     # Metadata inherited from Observation base
     # done: bool, reward: float, metadata: dict
 

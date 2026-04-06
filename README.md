@@ -4,7 +4,7 @@
 
 **Train and evaluate AI agents on a real telecom workflow: who gets which frequency, at what power, under regulation.**
 
-<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&duration=2200&pause=800&color=36BCF7&center=true&vCenter=true&width=600&lines=OpenEnv+%7C+Dynamic+Spectrum+Access;12+bands+%7C+3+tasks+%7C+0%E2%80%931.0+rewards;LLM+%2B+RL-ready+spectrum+coordinator+benchmark" alt="Animated tagline" />
+<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&duration=2200&pause=800&color=36BCF7&center=true&vCenter=true&width=600&lines=OpenEnv+%7C+Dynamic+Spectrum+Access;12+bands+%7C+5+tasks+%7C+0%E2%80%931.0+rewards;LLM+%2B+RL-ready+spectrum+coordinator+benchmark" alt="Animated tagline" />
 
 <br/>
 
@@ -20,7 +20,7 @@
 |:---:|:---|
 | **Domain** | RF spectrum allocation (operators & regulators) |
 | **API** | `reset()` · `step(action)` · `state` (OpenEnv) |
-| **Tasks** | **easy** (5) · **medium** (8) · **hard** (12) steps / episode |
+| **Tasks** | **easy** (5) · **medium** (8) · **disaster_response** (10) · **hard** (12) · **spectrum_auction** (8) steps / episode |
 | **Reward** | Dense, partial credit · per-step **0.0–1.0** |
 
 <sub>OpenEnv manifest: [`openenv.yaml`](openenv.yaml) · Env name: `rf_spectrum_env`</sub>
@@ -182,7 +182,9 @@ class SpectrumObservation(Observation):
 |:-----|:---------------:|:-----|:-----------------|
 | **easy** | 5 | Quiet shift | Straightforward band + power fit |
 | **medium** | 8 | Busy day | Priority, CBRS PAL vs GAA, redirects |
+| **disaster_response** | 10 | Cyclone emergency | Temporal reasoning, preemption, priority override |
 | **hard** | 12 | Crisis / congestion | Military, cognitive secondary, caps, adjacency |
+| **spectrum_auction** | 8 | Forward-looking | Look-ahead planning, globally optimal allocation |
 
 <details>
 <summary><b>Easy — Quiet shift (5 steps)</b></summary>
@@ -208,6 +210,36 @@ Adds **priority** and **shared spectrum** flavor: emergency vs commercial, PAL v
 Stress case: **military / emergency**, **IoT over-power**, **cognitive / secondary** storylines, and **adjacent-band** tension. Rewards still dense per step, but the correct policy is much less obvious.
 
 **Rough baseline:** ~0.2–0.4.
+
+</details>
+
+<details>
+<summary><b>Disaster Response — Cyclone emergency (10 steps)</b></summary>
+
+Two-phase episode. **Phase 1 (steps 1–3):** Normal commercial / IoT traffic — routine band assignments. **Phase 2 (steps 4–10):** A natural disaster is declared. Cascading emergency requests arrive from NDRF, fire services, police, military, and ambulance units. The agent must:
+
+- **Preempt** existing lower-priority allocations to serve P1 emergency/military requests.
+- **Reject** non-essential commercial expansion requests (suspension rule applies during active disaster).
+- Recognise **elevated-priority IoT** (flood sensors, early-warning) and assign licensed bands with higher power allowances.
+
+Key skills tested: **temporal context awareness** (phase transition mid-episode), **preemption logic**, **priority override**, and knowing when rejection is the correct action.
+
+**Rough baseline:** ~0.35.
+
+</details>
+
+<details>
+<summary><b>Spectrum Auction — Forward-looking (8 steps)</b></summary>
+
+The agent is given a **look-ahead window** of up to 2 upcoming requests (visible in the `upcoming_requests` observation field). Greedy allocation often produces a suboptimal episode score — the agent must reason globally:
+
+- A **commercial P3** prefers Band 1, but the next request is an **emergency P1** that also needs Band 1. Optimal: assign the commercial to Band 3 now, preserve Band 1.
+- Three consecutive **IoT** devices all prefer Band 7 (ISM). Optimal: spread them across Bands 7 → 8 → 11 to avoid congestion.
+- A **commercial P5** arrives when a **military P1** is upcoming. Optimal: reject the P5 to keep spectrum available.
+
+The `upcoming_requests` field is **only populated for this task** — other tasks return an empty list. Ground-truth fields (gt_best_band_index, etc.) are never revealed; only observable attributes (type, priority, bandwidth, preferred band, description) are exposed.
+
+**Rough baseline:** ~0.25.
 
 </details>
 
@@ -323,7 +355,9 @@ With **Llama-3.1-8B-Instruct**, HF router, **`temperature=0`**, fixed **scenario
 |:-----|:----------------:|:------------:|
 | easy | 3 × 5 | ~0.70 |
 | medium | 3 × 8 | ~0.50 |
+| disaster_response | 3 × 10 | ~0.35 |
 | hard | 3 × 12 | ~0.30 |
+| spectrum_auction | 3 × 8 | ~0.25 |
 
 *(Exact numbers drift with provider routing and model updates — reproducibility is best-effort at the LLM layer.)*
 
@@ -336,7 +370,7 @@ With **Llama-3.1-8B-Instruct**, HF router, **`temperature=0`**, fixed **scenario
 
 ```
 rf_spectrum_env/
-├── openenv.yaml              # Task manifest (easy / medium / hard)
+├── openenv.yaml              # Task manifest (easy / medium / disaster_response / hard / spectrum_auction)
 ├── models.py                 # Pydantic Action / Observation / State
 ├── scenarios.py              # Deterministic scenarios + ground truth
 ├── client.py                 # WebSocket EnvClient

@@ -16,7 +16,15 @@ tasks:
     description: Moderate occupancy with priority conflicts and guard band awareness.
     difficulty: medium
     steps_per_episode: 8
+  - name: disaster_response
+    description: Natural disaster scenario with cascading emergency requests, preemption, and priority overrides.
+    difficulty: medium-hard
+    steps_per_episode: 10
   - name: hard
     description: Dense urban spectrum with cascading preemptions, cognitive radio dynamics, and military operations.
     difficulty: hard
     steps_per_episode: 12
+  - name: spectrum_auction
+    description: Forward-looking allocation with queue visibility requiring globally optimal planning.
+    difficulty: expert
+    steps_per_episode: 8

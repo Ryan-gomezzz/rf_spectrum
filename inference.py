@@ -113,10 +113,26 @@ INCOMING REQUEST:
 
 REGULATORY RULES:
 {rules_str}
-
-Respond with a JSON object: {{"assigned_band_index": <int>, "assigned_power_dbm": <float>, "justification": "<string>"}}
 """).strip()
 
+    # Append look-ahead block for spectrum_auction task when upcoming requests are present
+    if observation.upcoming_requests:
+        upcoming_lines = []
+        for i, upcoming in enumerate(observation.upcoming_requests):
+            upcoming_lines.append(
+                f"  Next+{i + 1}: {upcoming.get('requester_type', '?')} "
+                f"(P{upcoming.get('priority', '?')}) needs "
+                f"{upcoming.get('bandwidth_needed_mhz', '?')} MHz, "
+                f"prefers Band {upcoming.get('preferred_band_index', '?')}"
+            )
+            upcoming_lines.append(f"    {upcoming.get('description', '')}")
+        prompt += "\n\nUPCOMING REQUESTS (plan ahead — assign current request with future demand in mind):\n"
+        prompt += "\n".join(upcoming_lines)
+
+    prompt += (
+        '\n\nRespond with a JSON object: {"assigned_band_index": <int>, '
+        '"assigned_power_dbm": <float>, "justification": "<string>"}'
+    )
     return prompt
 
 
@@ -264,7 +280,7 @@ def main():
     results: Dict[str, List[float]] = {}
     num_episodes_per_task = 3  # run 3 episodes per difficulty
 
-    for task_name in ["easy", "medium", "hard"]:
+    for task_name in ["easy", "medium", "disaster_response", "hard", "spectrum_auction"]:
         print(f"\n{'-' * 40}", file=sys.stderr)
         print(f"TASK: {task_name.upper()}", file=sys.stderr)
         print(f"Description: {TASK_REGISTRY[task_name]['description']}", file=sys.stderr)
@@ -297,5 +313,5 @@ def main():
     return overall_avg
 
 
-#if __name__ == "__main__":
-#   main()
+if __name__ == "__main__":
+    main()

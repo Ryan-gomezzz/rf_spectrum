@@ -447,3 +447,118 @@ class TestGraderVariation:
         assert len(set(round(s, 3) for s in episode_scores)) > 1, (
             f"Grader returned same score for all strategies: {episode_scores}"
         )
+
+
+# ── New task tests ────────────────────────────────────────────────────
+
+class TestNewTasks:
+    def test_all_five_tasks_in_registry(self):
+        for task in ["easy", "medium", "disaster_response", "hard", "spectrum_auction"]:
+            assert task in TASK_REGISTRY, f"Task '{task}' missing from TASK_REGISTRY"
+
+    def test_disaster_response_episode_length(self):
+        env = SpectrumEnvironment()
+        obs = env.reset(task_name="disaster_response")
+        assert obs.total_steps == 10
+        steps = 0
+        while not obs.done:
+            obs = env.step(reasonable_action(obs))
+            steps += 1
+        assert steps == 10
+
+    def test_spectrum_auction_episode_length(self):
+        env = SpectrumEnvironment()
+        obs = env.reset(task_name="spectrum_auction")
+        assert obs.total_steps == 8
+        steps = 0
+        while not obs.done:
+            obs = env.step(reasonable_action(obs))
+            steps += 1
+        assert steps == 8
+
+    def test_spectrum_auction_has_upcoming_requests(self):
+        env = SpectrumEnvironment()
+        obs = env.reset(task_name="spectrum_auction")
+        assert isinstance(obs.upcoming_requests, list)
+        assert len(obs.upcoming_requests) > 0, "spectrum_auction should expose upcoming requests"
+        assert len(obs.upcoming_requests) <= 2
+
+    def test_spectrum_auction_upcoming_fields(self):
+        env = SpectrumEnvironment()
+        obs = env.reset(task_name="spectrum_auction")
+        for entry in obs.upcoming_requests:
+            assert "requester_type" in entry
+            assert "priority" in entry
+            assert "bandwidth_needed_mhz" in entry
+            assert "preferred_band_index" in entry
+            assert "description" in entry
+            # Ground-truth fields must NOT be exposed
+            assert "gt_best_band_index" not in entry
+            assert "gt_acceptable_bands" not in entry
+
+    def test_disaster_response_no_upcoming_requests(self):
+        env = SpectrumEnvironment()
+        obs = env.reset(task_name="disaster_response")
+        assert obs.upcoming_requests == [], "disaster_response should not expose upcoming requests"
+
+    def test_disaster_response_rewards_vary(self):
+        env = SpectrumEnvironment()
+        obs = env.reset(task_name="disaster_response")
+        rewards = []
+        while not obs.done:
+            obs = env.step(reasonable_action(obs))
+            rewards.append(obs.reward)
+        assert len(set(round(r, 2) for r in rewards)) > 1, f"All rewards identical: {rewards}"
+
+    def test_spectrum_auction_rewards_vary(self):
+        env = SpectrumEnvironment()
+        obs = env.reset(task_name="spectrum_auction")
+        rewards = []
+        while not obs.done:
+            obs = env.step(reasonable_action(obs))
+            rewards.append(obs.reward)
+        assert len(set(round(r, 2) for r in rewards)) > 1, f"All rewards identical: {rewards}"
+
+    def test_disaster_phase2_reject_outscores_assign(self):
+        """Rejecting commercial during disaster should outscore assigning it."""
+        env_reject = SpectrumEnvironment()
+        obs = env_reject.reset(task_name="disaster_response", seed=777)
+        rewards_reject = []
+        # Advance to step 8 (index 7) — commercial reject case
+        for i in range(7):
+            if obs.done:
+                break
+            obs = env_reject.step(reasonable_action(obs))
+        if not obs.done and obs.current_request.get("requester_type") == "commercial":
+            obs_r = env_reject.step(SpectrumAction(
+                assigned_band_index=-1,
+                assigned_power_dbm=0.0,
+                justification="Rejecting non-essential commercial traffic during disaster operations",
+            ))
+            rewards_reject.append(obs_r.reward)
+
+        if rewards_reject:
+            assert rewards_reject[0] >= 0.3, (
+                f"Disaster phase2 reject should score ≥0.3, got {rewards_reject[0]}"
+            )
+        else:
+            pytest.skip("Could not reach commercial reject step with this seed")
+
+    def test_new_tasks_rewards_in_range(self):
+        for task in ["disaster_response", "spectrum_auction"]:
+            env = SpectrumEnvironment()
+            obs = env.reset(task_name=task)
+            while not obs.done:
+                obs = env.step(reasonable_action(obs))
+                assert 0.0 <= obs.reward <= 1.0, f"Reward {obs.reward} out of range in {task}"
+
+    def test_all_tasks_complete(self):
+        for task in ["easy", "medium", "disaster_response", "hard", "spectrum_auction"]:
+            env = SpectrumEnvironment()
+            obs = env.reset(task_name=task)
+            steps = 0
+            while not obs.done:
+                obs = env.step(reasonable_action(obs))
+                steps += 1
+            assert obs.done is True, f"{task} never reached done=True"
+            assert steps > 0, f"{task} completed in 0 steps"
