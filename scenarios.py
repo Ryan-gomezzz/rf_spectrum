@@ -117,7 +117,7 @@ def _build_easy_scenarios(seed: int = 42) -> List[List[ScenarioRequest]]:
     rng = random.Random(seed)
     scenarios = []
 
-    for ep in range(10):
+    for ep in range(50):
         episode: List[ScenarioRequest] = []
         for step in range(5):
             req_type = rng.choice(["commercial", "iot", "amateur"])
@@ -174,7 +174,7 @@ def _build_medium_scenarios(seed: int = 123) -> List[List[ScenarioRequest]]:
     rng = random.Random(seed)
     scenarios = []
 
-    for ep in range(10):
+    for ep in range(50):
         episode: List[ScenarioRequest] = []
         for step in range(8):
             roll = rng.random()
@@ -295,7 +295,7 @@ def _build_disaster_response_scenarios(seed: int = 777) -> List[List[ScenarioReq
     agency_names = ["NDRF", "fire brigade", "police", "ambulance", "coast guard"]
     military_bands = [1, 3, 5, 6]  # licensed bands military can commandeer
 
-    for ep in range(10):
+    for ep in range(50):
         episode: List[ScenarioRequest] = []
 
         # ── Phase 1: Normal operations (steps 0-2) ───────────────────
@@ -475,7 +475,7 @@ def _build_hard_scenarios(seed: int = 999) -> List[List[ScenarioRequest]]:
     rng = random.Random(seed)
     scenarios = []
 
-    for ep in range(10):
+    for ep in range(50):
         episode: List[ScenarioRequest] = []
         for step in range(12):
             roll = rng.random()
@@ -638,7 +638,7 @@ def _build_spectrum_auction_scenarios(seed: int = 555) -> List[List[ScenarioRequ
     rng = random.Random(seed)
     scenarios = []
 
-    for ep in range(10):
+    for ep in range(50):
         episode: List[ScenarioRequest] = []
 
         # ── Pattern A: Save Band 1 for incoming emergency ─────────────

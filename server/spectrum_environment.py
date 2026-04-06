@@ -7,6 +7,7 @@ Implements the OpenEnv Environment interface with step(), reset(), state().
 from __future__ import annotations
 
 import os
+import random
 import sys
 import uuid
 from dataclasses import asdict
@@ -80,6 +81,23 @@ class SpectrumEnvironment(Environment):
             task_name=self._task_name,
             requests_total=len(self._current_episode),
         )
+
+        # Inject background occupancy for non-easy tasks (seeded, deterministic)
+        if self._task_name != "easy":
+            bg_rng = random.Random((effective_seed or 42) + (self._episode_index * 7))
+            num_background = bg_rng.randint(2, 4)
+            background_users = ["bg-carrier", "bg-enterprise", "bg-municipal", "bg-broadcast"]
+            for i in range(num_background):
+                band_idx = bg_rng.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+                band = SPECTRUM_GRID[band_idx]
+                self._active_allocations.append({
+                    "band_index": band_idx,
+                    "user_type": "commercial",
+                    "user_id": bg_rng.choice(background_users) + f"-{i}",
+                    "power_dbm": round(band.max_power_dbm * bg_rng.uniform(0.5, 0.8), 1),
+                    "remaining_steps": bg_rng.randint(3, 8),
+                    "request_id": f"bg-{self._episode_index}-{i}",
+                })
 
         return self._build_observation(done=False, reward=None)
 
@@ -236,24 +254,40 @@ class SpectrumEnvironment(Environment):
                     break
 
         # ── Priority handling (0.25) ──────────────────────────────────
+        # Priority bonus is partially gated on band selection correctness
+        band_was_correct = (
+            action.assigned_band_index == request.gt_best_band_index
+            or action.assigned_band_index in request.gt_acceptable_bands
+        )
+
         if request.priority == 1:
+            # Emergency/military: must be allocated immediately
             if action.assigned_band_index >= 0:
-                total += 0.20
+                total += 0.15  # Base credit for not rejecting emergency
+                if band_was_correct:
+                    total += 0.05  # Bonus for correct band
                 if request.gt_should_preempt:
-                    total += 0.05
+                    total += 0.05  # Bonus for preemption awareness
             else:
-                total += 0.0
+                total += 0.0  # Rejected emergency = zero
                 error = error or "Rejected emergency/military request."
         elif request.gt_should_preempt:
             if action.assigned_band_index >= 0:
-                total += 0.25
+                if band_was_correct:
+                    total += 0.25  # Full marks: preempted into correct band
+                else:
+                    total += 0.10  # Allocated but wrong band
             else:
-                total += 0.05
+                total += 0.05  # Rejected when should have preempted
         else:
+            # Standard requests: priority score gated on band correctness
             if action.assigned_band_index >= 0 or request.gt_best_band_index == -1:
-                total += 0.25
+                if band_was_correct or request.gt_best_band_index == -1:
+                    total += 0.25  # Correct allocation or correct rejection
+                else:
+                    total += 0.10  # Allocated to wrong band
             else:
-                total += 0.10
+                total += 0.05  # Rejected when should have allocated
 
         # ── Justification quality (0.15) ─────────────────────────────
         justification = action.justification.lower()
@@ -385,8 +419,20 @@ class SpectrumEnvironment(Environment):
 def grade_episode(rewards: List[float]) -> float:
     """
     Compute the final episode score from per-step rewards.
+
+    Uses mean reward with a penalty for catastrophic failures (steps scoring
+    below 0.1). This prevents agents from gaming the score by bombing early
+    steps and recovering later.
+
     Returns a float in [0.0, 1.0].
     """
     if not rewards:
         return 0.0
-    return round(sum(rewards) / len(rewards), 4)
+
+    mean_reward = sum(rewards) / len(rewards)
+
+    # Penalize catastrophic failures: each step below 0.1 costs 0.05
+    catastrophic_count = sum(1 for r in rewards if r < 0.1)
+    penalty = catastrophic_count * 0.05
+
+    return round(max(0.0, min(1.0, mean_reward - penalty)), 4)

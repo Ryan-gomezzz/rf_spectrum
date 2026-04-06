@@ -189,6 +189,10 @@ def run_episode(
     success = False
     step = 0
 
+    # Initialize conversation with system prompt — persists across all steps
+    # so the LLM can reason about interference, band reuse, and its own prior decisions.
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
     # Mandatory [START] line
     print(f"[START] task={task_name} env=rf_spectrum_env model={MODEL_NAME}", flush=True)
 
@@ -196,17 +200,15 @@ def run_episode(
         while not obs.done:
             user_prompt = build_user_prompt(obs)
 
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ]
+            # Append user message to running conversation history
+            messages.append({"role": "user", "content": user_prompt})
 
             response_text = ""
             for attempt in range(MAX_RETRIES + 1):
                 try:
                     completion = client.chat.completions.create(
                         model=MODEL_NAME,
-                        messages=messages,
+                        messages=messages,  # Full conversation history
                         temperature=TEMPERATURE,
                         max_tokens=MAX_TOKENS,
                         stream=False,
@@ -217,6 +219,14 @@ def run_episode(
                     print(f"    [RETRY {attempt+1}] API error: {e}", file=sys.stderr)
                     if attempt == MAX_RETRIES:
                         response_text = '{"assigned_band_index": -1, "assigned_power_dbm": 0, "justification": "API failure"}'
+
+            # Append assistant response to conversation history
+            messages.append({"role": "assistant", "content": response_text})
+
+            # Trim to last 6 exchanges to stay within token limits
+            # (system prompt + up to 6 user/assistant pairs = 13 messages max)
+            if len(messages) > 13:
+                messages = [messages[0]] + messages[-12:]
 
             action = parse_action(response_text)
             obs = env.step(action)

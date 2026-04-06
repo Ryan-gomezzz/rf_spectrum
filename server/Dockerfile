@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY pyproject.toml .
-RUN pip install --no-cache-dir openenv-core pydantic uvicorn fastapi
+RUN pip install --no-cache-dir openenv-core==0.2.3 pydantic uvicorn fastapi
 
 # Copy environment code
 COPY . .
