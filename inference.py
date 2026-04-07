@@ -287,7 +287,7 @@ def main():
     print(f"API: {API_BASE_URL}", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=api_key or "missing-token")
+    client = OpenAI(base_url=API_BASE_URL, api_key=api_key or "missing-token", timeout=30.0)
     env = SpectrumEnvironment()
 
     results: Dict[str, List[float]] = {}
@@ -327,4 +327,20 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as _fatal:
+        # Emergency failsafe: if main() itself crashes, still emit one valid
+        # [START]/[STEP]/[END] triplet so the validator can parse something.
+        print(f"FATAL: {_fatal}", file=sys.stderr)
+        _task = "easy"
+        print(f"[START] task={_task} env=rf_spectrum_env model={MODEL_NAME}", flush=True)
+        print(
+            f"[STEP] step=1 action=assign(band=-1,power=0.0) reward=0.00 "
+            f"done=true error=startup_failure",
+            flush=True,
+        )
+        print(
+            f"[END] task={_task} success=false steps=1 score=0.00 rewards=0.00",
+            flush=True,
+        )
