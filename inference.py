@@ -263,7 +263,7 @@ def run_episode(
         rewards_str = ",".join(f"{r:.2f}" for r in rewards)
         success_str = "true" if success else "false"
         print(
-            f"[END] success={success_str} steps={step} score={score:.2f} rewards={rewards_str}",
+            f"[END] task={task_name} success={success_str} steps={step} score={score:.2f} rewards={rewards_str}",
             flush=True,
         )
 
@@ -273,9 +273,11 @@ def run_episode(
 
 def main():
     """Run baseline inference across all three tasks."""
-    if not HF_TOKEN:
+    api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
+
+    if not api_key:
         print(
-            "WARNING: HF_TOKEN not set — API calls will fail and use fallback responses.",
+            "WARNING: HF_TOKEN not set, API calls will fail but structured output will still be emitted.",
             file=sys.stderr,
         )
 
@@ -285,7 +287,7 @@ def main():
     print(f"API: {API_BASE_URL}", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "missing-token")
+    client = OpenAI(base_url=API_BASE_URL, api_key=api_key or "missing-token")
     env = SpectrumEnvironment()
 
     results: Dict[str, List[float]] = {}
