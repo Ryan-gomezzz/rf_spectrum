@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir openenv-core==0.2.3 pydantic uvicorn fastapi
+RUN pip install --no-cache-dir openenv-core==0.2.3 pydantic uvicorn fastapi openai
 
 COPY . .
 
