@@ -1,16 +1,16 @@
-FROM python:3.11-slim
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 
 WORKDIR /app
 
-# Install dependencies
-COPY pyproject.toml .
-RUN pip install --no-cache-dir openenv-core==0.2.3 pydantic uvicorn fastapi openai
+# Copy lockfile and manifest first for layer caching
+COPY pyproject.toml uv.lock ./
 
-# Copy environment code
+# Install all dependencies from the frozen lockfile (no network guessing)
+RUN uv sync --no-dev --frozen
+
+# Copy the rest of the project
 COPY . .
 
-# Expose port
 EXPOSE 7860
 
-# Run the FastAPI server
-CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uv", "run", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
