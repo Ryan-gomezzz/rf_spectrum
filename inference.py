@@ -37,9 +37,10 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-MAX_RETRIES = 2
+MAX_RETRIES = 1
 TEMPERATURE = 0.0
 MAX_TOKENS = 300
+API_TIMEOUT = 15.0  # seconds per request attempt
 
 SYSTEM_PROMPT = textwrap.dedent("""
 You are an RF Spectrum Manager agent. You process allocation requests and assign
@@ -177,60 +178,119 @@ def parse_action(response_text: str) -> SpectrumAction:
     )
 
 
+def _rule_based_action(obs: SpectrumObservation) -> SpectrumAction:
+    """
+    Fast, network-free fallback policy used when no LLM token is available.
+    Picks the first free band that matches the request type and stays within
+    power limits, falling back to a safe default if nothing matches.
+    """
+    req = obs.current_request
+    if not req:
+        return SpectrumAction(assigned_band_index=-1, assigned_power_dbm=0.0,
+                              justification="No request to process.")
+
+    requester_type = req.get("requester_type", "commercial")
+    requested_power = float(req.get("power_dbm", 20.0))
+    priority = req.get("priority", 3)
+
+    occupied = {b["index"] for b in obs.spectrum_grid if b.get("occupied")}
+
+    # Choose candidate bands by requester type and priority
+    if requester_type in ("emergency", "military") or priority == 1:
+        candidates = [0, 1, 2, 3, 4]  # protected + licensed
+    elif requester_type == "iot":
+        candidates = [7, 8, 10, 11]   # unlicensed / shared
+    else:
+        candidates = [1, 2, 3, 4, 5, 6, 9, 10]  # licensed / CBRS
+
+    for band_info in obs.spectrum_grid:
+        idx = band_info["index"]
+        if idx not in occupied and idx in candidates:
+            power = min(requested_power, float(band_info.get("max_power_dbm", 20.0)))
+            return SpectrumAction(
+                assigned_band_index=idx,
+                assigned_power_dbm=power,
+                justification=(
+                    f"Assigned band {idx} ({band_info.get('label', '')}) for "
+                    f"{requester_type} request; power {power:.1f} dBm within regulatory limit."
+                ),
+            )
+
+    # All candidates occupied — use first free band or reject
+    for band_info in obs.spectrum_grid:
+        if band_info["index"] not in occupied:
+            power = min(requested_power, float(band_info.get("max_power_dbm", 20.0)))
+            return SpectrumAction(
+                assigned_band_index=band_info["index"],
+                assigned_power_dbm=power,
+                justification=f"Fallback allocation to band {band_info['index']}; best available.",
+            )
+
+    return SpectrumAction(
+        assigned_band_index=-1,
+        assigned_power_dbm=0.0,
+        justification="All bands occupied; rejecting request.",
+    )
+
+
 def run_episode(
     client: OpenAI,
     env: SpectrumEnvironment,
     task_name: str,
     episode_idx: int,
+    use_llm: bool = True,
 ) -> float:
     """Run a single episode and return the score."""
     rewards: List[float] = []
     success = False
     step = 0
+    score = 0.0
 
-    # Mandatory [START] line — emitted before env.reset() so it always appears
-    # even if reset() raises an exception.
+    # Mandatory [START] line
     print(f"[START] task={task_name} env=rf_spectrum_env model={MODEL_NAME}", flush=True)
 
-    # Initialize conversation with system prompt — persists across all steps
-    # so the LLM can reason about interference, band reuse, and its own prior decisions.
+    # Initialize conversation history (used only when use_llm=True)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    obs = env.reset(task_name=task_name, episode_index=episode_idx, seed=42)
-
     try:
+        # env.reset() is inside the try block so the finally clause
+        # (which prints [END]) always executes even if reset() raises.
+        obs = env.reset(task_name=task_name, episode_index=episode_idx, seed=42)
+
         while not obs.done:
-            user_prompt = build_user_prompt(obs)
+            if use_llm:
+                user_prompt = build_user_prompt(obs)
+                messages.append({"role": "user", "content": user_prompt})
 
-            # Append user message to running conversation history
-            messages.append({"role": "user", "content": user_prompt})
+                response_text = ""
+                for attempt in range(MAX_RETRIES + 1):
+                    try:
+                        completion = client.chat.completions.create(
+                            model=MODEL_NAME,
+                            messages=messages,
+                            temperature=TEMPERATURE,
+                            max_tokens=MAX_TOKENS,
+                            stream=False,
+                        )
+                        response_text = completion.choices[0].message.content or ""
+                        break
+                    except Exception as e:
+                        print(f"    [RETRY {attempt+1}] API error: {e}", file=sys.stderr)
+                        if attempt == MAX_RETRIES:
+                            response_text = (
+                                '{"assigned_band_index": -1, "assigned_power_dbm": 0,'
+                                ' "justification": "API failure"}'
+                            )
 
-            response_text = ""
-            for attempt in range(MAX_RETRIES + 1):
-                try:
-                    completion = client.chat.completions.create(
-                        model=MODEL_NAME,
-                        messages=messages,  # Full conversation history
-                        temperature=TEMPERATURE,
-                        max_tokens=MAX_TOKENS,
-                        stream=False,
-                    )
-                    response_text = completion.choices[0].message.content or ""
-                    break
-                except Exception as e:
-                    print(f"    [RETRY {attempt+1}] API error: {e}", file=sys.stderr)
-                    if attempt == MAX_RETRIES:
-                        response_text = '{"assigned_band_index": -1, "assigned_power_dbm": 0, "justification": "API failure"}'
+                messages.append({"role": "assistant", "content": response_text})
+                # Keep context window bounded: system prompt + last 6 exchanges
+                if len(messages) > 13:
+                    messages = [messages[0]] + messages[-12:]
 
-            # Append assistant response to conversation history
-            messages.append({"role": "assistant", "content": response_text})
+                action = parse_action(response_text)
+            else:
+                action = _rule_based_action(obs)
 
-            # Trim to last 6 exchanges to stay within token limits
-            # (system prompt + up to 6 user/assistant pairs = 13 messages max)
-            if len(messages) > 13:
-                messages = [messages[0]] + messages[-12:]
-
-            action = parse_action(response_text)
             obs = env.step(action)
 
             reward = obs.reward if obs.reward is not None else 0.0
@@ -250,7 +310,7 @@ def run_episode(
         success = True
 
     except Exception as exc:
-        # Emit a final [STEP] for the failed step
+        # Ensure at least one [STEP] appears so the validator sees a complete triplet
         error_msg = str(exc).replace("\n", " ")
         print(
             f"[STEP] step={step + 1} action=null reward=0.00 done=true error={error_msg}",
@@ -258,7 +318,7 @@ def run_episode(
         )
 
     finally:
-        # Mandatory [END] line — always emitted
+        # Mandatory [END] line — guaranteed to run regardless of how we exit the try block
         score = grade_episode(rewards) if rewards else 0.0
         rewards_str = ",".join(f"{r:.2f}" for r in rewards)
         success_str = "true" if success else "false"
@@ -272,26 +332,29 @@ def run_episode(
 
 
 def main():
-    """Run baseline inference across all three tasks."""
+    """Run baseline inference across all tasks."""
     api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
+    use_llm = bool(api_key)
 
-    if not api_key:
+    if not use_llm:
         print(
-            "WARNING: HF_TOKEN not set, API calls will fail but structured output will still be emitted.",
+            "WARNING: HF_TOKEN not set — using fast rule-based agent so structured output is "
+            "always produced without network calls.",
             file=sys.stderr,
         )
 
     print("=" * 60, file=sys.stderr)
     print("RF Spectrum Allocation — Baseline Inference", file=sys.stderr)
     print(f"Model: {MODEL_NAME}", file=sys.stderr)
-    print(f"API: {API_BASE_URL}", file=sys.stderr)
+    print(f"API:   {API_BASE_URL}", file=sys.stderr)
+    print(f"LLM:   {'enabled' if use_llm else 'disabled (no token)'}", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=api_key or "missing-token", timeout=30.0)
+    client = OpenAI(base_url=API_BASE_URL, api_key=api_key or "missing-token", timeout=API_TIMEOUT)
     env = SpectrumEnvironment()
 
     results: Dict[str, List[float]] = {}
-    num_episodes_per_task = 3  # run 3 episodes per difficulty
+    num_episodes_per_task = 3
 
     for task_name in ["easy", "medium", "disaster_response", "hard", "spectrum_auction"]:
         print(f"\n{'-' * 40}", file=sys.stderr)
@@ -301,7 +364,7 @@ def main():
 
         task_scores = []
         for ep_idx in range(num_episodes_per_task):
-            score = run_episode(client, env, task_name, ep_idx)
+            score = run_episode(client, env, task_name, ep_idx, use_llm=use_llm)
             task_scores.append(score)
 
         avg = sum(task_scores) / len(task_scores) if task_scores else 0.0
@@ -323,6 +386,7 @@ def main():
     print(f"\n  OVERALL:  {overall_avg:.4f}", file=sys.stderr)
     print(f"{'=' * 60}", file=sys.stderr)
 
+    sys.stdout.flush()
     return overall_avg
 
 
