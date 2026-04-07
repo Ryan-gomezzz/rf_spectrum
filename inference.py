@@ -184,17 +184,19 @@ def run_episode(
     episode_idx: int,
 ) -> float:
     """Run a single episode and return the score."""
-    obs = env.reset(task_name=task_name, episode_index=episode_idx, seed=42)
     rewards: List[float] = []
     success = False
     step = 0
+
+    # Mandatory [START] line — emitted before env.reset() so it always appears
+    # even if reset() raises an exception.
+    print(f"[START] task={task_name} env=rf_spectrum_env model={MODEL_NAME}", flush=True)
 
     # Initialize conversation with system prompt — persists across all steps
     # so the LLM can reason about interference, band reuse, and its own prior decisions.
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    # Mandatory [START] line
-    print(f"[START] task={task_name} env=rf_spectrum_env model={MODEL_NAME}", flush=True)
+    obs = env.reset(task_name=task_name, episode_index=episode_idx, seed=42)
 
     try:
         while not obs.done:
@@ -273,10 +275,9 @@ def main():
     """Run baseline inference across all three tasks."""
     if not HF_TOKEN:
         print(
-            "ERROR: HF_TOKEN is required (set your Hugging Face / API key).",
+            "WARNING: HF_TOKEN not set — API calls will fail and use fallback responses.",
             file=sys.stderr,
         )
-        sys.exit(1)
 
     print("=" * 60, file=sys.stderr)
     print("RF Spectrum Allocation — Baseline Inference", file=sys.stderr)
@@ -284,7 +285,7 @@ def main():
     print(f"API: {API_BASE_URL}", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "missing-token")
     env = SpectrumEnvironment()
 
     results: Dict[str, List[float]] = {}
