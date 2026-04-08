@@ -15,10 +15,31 @@ STDOUT FORMAT (mandatory, do not alter):
     [END] success=<true|false> steps=<n> score=<0.00> rewards=<r1,r2,...,rn>
 """
 
+import subprocess
+import sys
+
+# ── Bootstrap: ensure required packages are installed ────────────────
+# The validator runs this script in a bare Python environment without
+# pre-installing dependencies. This block silently installs anything
+# missing so the rest of the script never hits an ImportError.
+def _ensure(*packages: str) -> None:
+    for pkg in packages:
+        module = pkg.split(">=")[0].split("==")[0].replace("-", "_")
+        try:
+            __import__(module)
+        except ImportError:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", pkg, "-q"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+_ensure("openai>=1.0", "pydantic>=2.0", "openenv-core>=0.1.0",
+        "fastapi>=0.109.0", "uvicorn>=0.27.0")
+
 import json
 import os
 import re
-import sys
 import textwrap
 from typing import Any, Dict, List, Optional
 
